@@ -128,18 +128,19 @@ if selected_core:
     try:
         # 전체 ETF 데이터에서 보완 ETF 찾기
         if hasattr(recommender, 'metrics_df') and recommender.metrics_df is not None and not recommender.metrics_df.empty:
-            all_etfs_raw = recommender.metrics_df.copy()
+            # metrics_df의 인덱스를 컬럼으로 변환하여 정렬 문제 해결
+            all_etfs_raw = recommender.metrics_df.reset_index().rename(columns={'index': 'Ticker'})
 
             # 필요한 컬럼명 매핑
             all_etfs = pd.DataFrame()
-            all_etfs['Ticker'] = all_etfs_raw.index
+            all_etfs['Ticker'] = all_etfs_raw['Ticker']
             # 간단한 ETF 이름 및 카테고리 매핑 (추후 개선 가능)
-            all_etfs['Name'] = [f"ETF {ticker}" for ticker in all_etfs_raw.index]
-            all_etfs['Category'] = ['기타' for _ in all_etfs_raw.index]
-            all_etfs['Return_1Y'] = all_etfs_raw['Annual Return'] * 100
-            all_etfs['Volatility'] = all_etfs_raw['Annual Volatility'] * 100
-            all_etfs['Sharpe_Ratio'] = all_etfs_raw['Sharpe Ratio']
-            all_etfs['Max_Drawdown'] = all_etfs_raw['Max Drawdown'] * 100
+            all_etfs['Name'] = [f"ETF {ticker}" for ticker in all_etfs_raw['Ticker']]
+            all_etfs['Category'] = ['기타' for _ in all_etfs_raw['Ticker']]
+            all_etfs['Return_1Y'] = all_etfs_raw['Annual Return'].values * 100
+            all_etfs['Volatility'] = all_etfs_raw['Annual Volatility'].values * 100
+            all_etfs['Sharpe_Ratio'] = all_etfs_raw['Sharpe Ratio'].values
+            all_etfs['Max_Drawdown'] = all_etfs_raw['Max Drawdown'].values * 100
 
             # 핵심 ETF와의 실제 상관관계 계산
             returns_df = recommender.returns_df
