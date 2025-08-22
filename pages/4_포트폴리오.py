@@ -152,21 +152,22 @@ if selected_core:
                 lambda tk: returns_df[core_ticker].corr(returns_df[tk]) if tk in returns_df.columns else np.nan
             )
             complement_candidates.dropna(subset=['Correlation'], inplace=True)
+            complement_candidates['CorrelationAbs'] = complement_candidates['Correlation'].abs()
+            complement_candidates['Score'] = complement_candidates['Sharpe_Ratio'] - complement_candidates['CorrelationAbs']
 
-            # 상관관계가 낮고 샤프지수가 높은 ETF 선별
-            filtered_complements = complement_candidates[
-                complement_candidates['Sharpe_Ratio'] > 0
+            strict_complements = complement_candidates[
+                (complement_candidates['CorrelationAbs'] <= 0.5)
+                & (complement_candidates['Sharpe_Ratio'] > 0)
             ]
-            filtered_complements['CorrelationAbs'] = filtered_complements['Correlation'].abs()
 
-            base_filtered = filtered_complements[filtered_complements['CorrelationAbs'] <= 0.5]
-            if base_filtered.empty:
-                st.warning("상관관계 0.5 이하이면서 샤프 지수가 양수인 보완 ETF를 찾을 수 없습니다. 조건을 완화합니다.")
-                base_filtered = filtered_complements
-
-            ranked_complements = base_filtered.sort_values(
-                ['CorrelationAbs', 'Sharpe_Ratio'], ascending=[True, False]
-            ).head(5)
+            if strict_complements.empty:
+                st.warning(
+                    "상관관계 0.5 이하이면서 샤프 지수가 양수인 보완 ETF를 찾을 수 없습니다. "
+                    "상관관계와 샤프지수 기반 점수로 상위 5개 ETF를 추천합니다."
+                )
+                ranked_complements = complement_candidates.sort_values('Score', ascending=False).head(5)
+            else:
+                ranked_complements = strict_complements.sort_values('Score', ascending=False).head(5)
 
             if not ranked_complements.empty:
                 st.success(f"{len(ranked_complements)}개의 보완 ETF를 찾았습니다!")
@@ -405,7 +406,7 @@ if selected_core:
                     """)
             
             else:
-                st.error("조건에 맞는 보완 ETF를 찾을 수 없습니다.")
+                st.error("추천할 보완 ETF를 찾을 수 없습니다.")
         
         else:
             st.error("추천 데이터를 불러올 수 없습니다. 먼저 ETF 추천을 받아주세요.")
