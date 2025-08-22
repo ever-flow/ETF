@@ -97,15 +97,17 @@ else:
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        risk_level = ["매우 보수적", "보수적", "중립적", "적극적", "매우 적극적"][profile['risk_tolerance']-1]
+        risk_level_options = ["매우 보수적", "보수적", "중립적", "적극적", "매우 적극적"]
+        risk_level = risk_level_options[profile.get('risk_tolerance', 3) - 1]
         st.metric("위험 성향", risk_level)
-    
+
     with col2:
-        horizon = ["단기", "중단기", "중기", "중장기", "장기"][profile['investment_horizon']-1]
+        horizon_options = ["단기", "중단기", "중기", "중장기", "장기"]
+        horizon = horizon_options[profile.get('investment_horizon', 3) - 1]
         st.metric("투자 기간", horizon)
-    
+
     with col3:
-        goal_map = {1: "안정성", 2: "성장성", 3: "수익성", 4: "균형"}
-        goal = goal_map.get(profile['investment_goal'], "균형")
+        goal_options = ["자산 보존", "안정적 수익", "시장 평균", "성장", "고수익"]
+        goal = goal_options[profile.get('goal', 3) - 1]
         st.metric("투자 목표", goal)
 

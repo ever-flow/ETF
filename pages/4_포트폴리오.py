@@ -121,152 +121,94 @@ if selected_core:
     
     st.markdown("---")
     st.markdown("### 2단계: 분산 투자를 위한 보완 ETF 추천")
-    st.markdown("선택하신 핵심 ETF와 낮은 상관관계를 가지면서 높은 샤프 비율을 보이는 ETF들을 추천합니다.")
-    
+
+    st.markdown("선택하신 핵심 ETF와 낮은 상관관계를 가지면서 샤프 지수가 높은 ETF들을 추천합니다.")
+
     # 보완 ETF 추천 로직
     try:
         # 전체 ETF 데이터에서 보완 ETF 찾기
         if hasattr(recommender, 'metrics_df') and recommender.metrics_df is not None and not recommender.metrics_df.empty:
-            # 전체 ETF 데이터 사용
-            all_etfs_raw = recommender.metrics_df.copy()
-            
+            # metrics_df의 인덱스를 컬럼으로 변환하여 정렬 문제 해결
+            all_etfs_raw = recommender.metrics_df.reset_index().rename(columns={'index': 'Ticker'})
+
             # 필요한 컬럼명 매핑
             all_etfs = pd.DataFrame()
-            all_etfs['Ticker'] = all_etfs_raw.index
-            # 간단한 ETF 이름 매핑 (실제로는 더 정교한 매핑 필요)
-            all_etfs['Name'] = [f"ETF {ticker}" for ticker in all_etfs_raw.index]
-            all_etfs['Category'] = ['기타' for _ in all_etfs_raw.index]  # 카테고리 정보 추가 필요
-            all_etfs['Return_1Y'] = all_etfs_raw['Annual Return'] * 100
-            all_etfs['Volatility'] = all_etfs_raw['Annual Volatility'] * 100
-            all_etfs['Sharpe_Ratio'] = all_etfs_raw['Sharpe Ratio']
-            all_etfs['Max_Drawdown'] = all_etfs_raw['Max Drawdown'] * 100
-            
-            # 핵심 ETF 데이터 가져오기 (추천 데이터에서)
-            core_etf_data = st.session_state.recommendations[st.session_state.recommendations['Ticker'] == core_ticker].iloc[0]
-            
-            # 보완 ETF 후보 필터링
-            # 1. 핵심 ETF가 아닌 것
-            # 2. 샤프 비율 >= 0.4
-            complement_candidates = all_etfs[
-                (all_etfs['Ticker'] != core_ticker) & 
-                (all_etfs['Sharpe_Ratio'] >= 0.4)
-            ].copy()
-            
-            if complement_candidates.empty:
-                st.warning("샤프 비율 0.4 이상인 보완 ETF 후보가 없습니다. 조건을 완화합니다.")
-                complement_candidates = all_etfs[
-                    (all_etfs['Ticker'] != core_ticker) & 
-                    (all_etfs['Sharpe_Ratio'] >= 0.2)
-                ].copy()
-            
-            # 핵심 ETF와의 상관관계 계산
-            correlations = []
-            
-            for _, etf in complement_candidates.iterrows():
-                # 실제 상관관계 계산
-                try:
-                    # 수익률, 변동성, 샤프비율을 기반으로 한 유사도 계산
-                    return_diff = abs(core_etf_data['Return_1Y'] - etf['Return_1Y']) / 100.0
-                    volatility_diff = abs(core_etf_data['Volatility'] - etf['Volatility']) / 100.0
-                    sharpe_diff = abs(core_etf_data['Sharpe_Ratio'] - etf['Sharpe_Ratio']) / 5.0
-                    
-                    # 카테고리 유사성 (같은 카테고리면 높은 상관관계)
-                    category_similarity = 0.7 if core_etf_data['Category'] == etf['Category'] else 0.1
-                    
-                    # 상관관계 추정: 유사할수록 높은 상관관계
-                    similarity_score = (return_diff + volatility_diff + sharpe_diff) / 3.0
-                    correlation = category_similarity + (1 - similarity_score) * 0.5
-                    correlation = min(0.9, max(-0.3, correlation))  # -0.3 ~ 0.9 범위로 제한
-                    
-                except Exception as e:
-                    # 계산 실패 시 카테고리 기반 추정
-                    if core_etf_data['Category'] == etf['Category']:
-                        correlation = np.random.uniform(0.4, 0.8)  # 같은 카테고리는 높은 상관관계
-                    else:
-                        correlation = np.random.uniform(-0.2, 0.4)  # 다른 카테고리는 낮은 상관관계
-                
-                # 보완 점수 계산: (1-상관관계) * 0.6 + 정규화된 샤프비율 * 0.4
-                max_sharpe = complement_candidates['Sharpe_Ratio'].max()
-                normalized_sharpe = etf['Sharpe_Ratio'] / max_sharpe if max_sharpe > 0 else 0
-                
-                complement_score = (1 - abs(correlation)) * 0.6 + normalized_sharpe * 0.4
-                
-                correlations.append({
-                    'Ticker': etf['Ticker'],
-                    'Name': etf['Name'],
-                    'Category': etf['Category'],
-                    'Return_1Y': etf['Return_1Y'],
-                    'Volatility': etf['Volatility'],
-                    'Sharpe_Ratio': etf['Sharpe_Ratio'],
-                    'Max_Drawdown': etf['Max_Drawdown'],
-                    'Correlation': correlation,
-                    'Complement_Score': complement_score
-                })
-            
-            # 보완 ETF 데이터프레임 생성
-            complement_df = pd.DataFrame(correlations)
-            
-            # 조건 필터링: 상관관계 < 0.4, 샤프비율 >= 0.4 (사용자 요구사항)
-            filtered_complements = complement_df[
-                (complement_df['Correlation'].abs() <= 0.4) & 
-                (complement_df['Sharpe_Ratio'] >= 0.4)
-            ].sort_values('Complement_Score', ascending=False).head(5)
-            
-            # 조건에 맞는 ETF가 없으면 조건 완화
-            if filtered_complements.empty:
-                st.warning("엄격한 조건(상관관계 ≤ 0.4, 샤프비율 ≥ 0.4)에 맞는 보완 ETF가 없어 조건을 완화합니다.")
-                filtered_complements = complement_df[
-                    (complement_df['Correlation'].abs() <= 0.6) & 
-                    (complement_df['Sharpe_Ratio'] >= 0.2)
-                ].sort_values('Complement_Score', ascending=False).head(5)
-            
-            if not filtered_complements.empty:
-                st.success(f"{len(filtered_complements)}개의 보완 ETF를 찾았습니다!")
-                
+            all_etfs['Ticker'] = all_etfs_raw['Ticker']
+            # 간단한 ETF 이름 및 카테고리 매핑 (추후 개선 가능)
+            all_etfs['Name'] = [f"ETF {ticker}" for ticker in all_etfs_raw['Ticker']]
+            all_etfs['Category'] = ['기타' for _ in all_etfs_raw['Ticker']]
+            all_etfs['Return_1Y'] = all_etfs_raw['Annual Return'].values * 100
+            all_etfs['Volatility'] = all_etfs_raw['Annual Volatility'].values * 100
+            all_etfs['Sharpe_Ratio'] = all_etfs_raw['Sharpe Ratio'].values
+            all_etfs['Max_Drawdown'] = all_etfs_raw['Max Drawdown'].values * 100
+
+            # 핵심 ETF와의 실제 상관관계 계산
+            returns_df = recommender.returns_df
+            if core_ticker not in returns_df.columns:
+                st.error("핵심 ETF 수익률 데이터를 찾을 수 없습니다.")
+                st.stop()
+
+            complement_candidates = all_etfs[all_etfs['Ticker'] != core_ticker].copy()
+            complement_candidates['Correlation'] = complement_candidates['Ticker'].apply(
+                lambda tk: returns_df[core_ticker].corr(returns_df[tk]) if tk in returns_df.columns else np.nan
+            )
+            complement_candidates.dropna(subset=['Correlation'], inplace=True)
+            complement_candidates['CorrelationAbs'] = complement_candidates['Correlation'].abs()
+            complement_candidates['Score'] = complement_candidates['Sharpe_Ratio'] - complement_candidates['CorrelationAbs']
+
+            strict_complements = complement_candidates[
+                (complement_candidates['CorrelationAbs'] <= 0.5)
+                & (complement_candidates['Sharpe_Ratio'] > 0)
+            ]
+
+            if strict_complements.empty:
+                st.warning(
+                    "상관관계 0.5 이하이면서 샤프 지수가 양수인 보완 ETF를 찾을 수 없습니다. "
+                    "상관관계와 샤프지수 기반 점수로 상위 5개 ETF를 추천합니다."
+                )
+                ranked_complements = complement_candidates.sort_values('Score', ascending=False).head(5)
+            else:
+                ranked_complements = strict_complements.sort_values('Score', ascending=False).head(5)
+
+            if not ranked_complements.empty:
+                st.success(f"{len(ranked_complements)}개의 보완 ETF를 찾았습니다!")
+
                 # 보완 ETF 목록 표시
-                for i, (_, etf) in enumerate(filtered_complements.iterrows()):
+                for i, (_, etf) in enumerate(ranked_complements.iterrows()):
                     with st.expander(f"보완 ETF #{i+1}: {etf['Name']}", expanded=i==0):
-                        
-                        # 보완 ETF 메트릭
+
                         complement_metrics = [
                             {
                                 "label": "1년 수익률",
                                 "value": f"{etf['Return_1Y']:.1f}%",
-                                "help": "최근 1년간의 투자 수익률입니다."
+                                "help": "최근 1년간의 투자 수익률입니다.",
                             },
                             {
                                 "label": "변동성",
                                 "value": f"{etf['Volatility']:.1f}%",
-                                "help": "가격 변동의 정도를 나타냅니다."
+                                "help": "가격 변동의 정도를 나타냅니다.",
                             },
                             {
                                 "label": "샤프 비율",
                                 "value": f"{etf['Sharpe_Ratio']:.2f}",
-                                "help": "위험 대비 수익률 지표입니다."
+                                "help": "위험 대비 수익률 지표입니다.",
                             }
                         ]
-                        
+
                         display_large_metric_row(complement_metrics)
-                        
-                        # 상관관계와 보완 점수 표시
+
+                        # 상관관계 표시
                         display_correlation_with_help(
-                            etf['Correlation'], 
-                            core_etf['Name'], 
+                            etf['Correlation'],
+                            core_etf['Name'],
                             etf['Name']
                         )
-                        
-                        display_metric_with_help(
-                            "보완 점수",
-                            f"{etf['Complement_Score']:.3f}",
-                            "분산 투자 적합도 점수입니다. 상관관계(60%)와 샤프비율(40%)을 종합한 지표입니다."
-                        )
-                
                 # 포트폴리오 구성 섹션
                 st.markdown("---")
                 st.markdown("### 3단계: 포트폴리오 비중 설정")
                 
                 # 선택할 보완 ETF
-                complement_options = ["선택 안함"] + [f"{row['Ticker']} - {row['Name']}" for _, row in filtered_complements.iterrows()]
+                complement_options = ["선택 안함"] + [f"{row['Ticker']} - {row['Name']}" for _, row in ranked_complements.iterrows()]
                 selected_complement = st.selectbox(
                     "보완 ETF 선택",
                     complement_options,
@@ -287,7 +229,7 @@ if selected_core:
                     complement_weight = 100 - core_weight
                     
                     complement_ticker = selected_complement.split(' - ')[0]
-                    complement_etf = filtered_complements[filtered_complements['Ticker'] == complement_ticker].iloc[0]
+                    complement_etf = ranked_complements[ranked_complements['Ticker'] == complement_ticker].iloc[0]
                     
                     st.markdown(f"**보완 ETF ({complement_etf['Name']}) 비중**: {complement_weight}%")
                     
@@ -465,7 +407,7 @@ if selected_core:
                     """)
             
             else:
-                st.error("조건에 맞는 보완 ETF를 찾을 수 없습니다.")
+                st.error("추천할 보완 ETF를 찾을 수 없습니다.")
         
         else:
             st.error("추천 데이터를 불러올 수 없습니다. 먼저 ETF 추천을 받아주세요.")
